@@ -4852,7 +4852,11 @@ def handle_post(handler, parsed) -> bool:
             if files is not None:
                 draft["files"] = files
             s.composer_draft = draft
-            s.save()
+            # Draft persistence is not conversation activity. Touching updated_at
+            # here makes the active-session external-refresh poll force-reload the
+            # current chat every few seconds while the user is typing, and that
+            # delayed reload can restore an older draft over newer local input.
+            s.save(touch_updated_at=False)
         return j(handler, {"ok": True, "draft": s.composer_draft})
 
     if parsed.path == "/api/session/update":
