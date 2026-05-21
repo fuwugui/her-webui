@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
+from api.profile_avatar import profile_avatar_payload
 from api.session_events import publish_session_list_changed
 
 logger = logging.getLogger(__name__)
@@ -993,7 +994,7 @@ def list_profiles_api() -> list:
     active = get_active_profile_name()
     result = []
     for p in infos:
-        result.append({
+        item = {
             'name': p.name,
             'path': str(p.path),
             'is_default': p.is_default,
@@ -1003,7 +1004,9 @@ def list_profiles_api() -> list:
             'provider': p.provider,
             'has_env': p.has_env,
             'skill_count': p.skill_count,
-        })
+        }
+        item['avatar'] = profile_avatar_payload(item)
+        result.append(item)
     return result
 
 
@@ -1019,6 +1022,7 @@ def _default_profile_dict() -> dict:
         'provider': None,
         'has_env': (_DEFAULT_HERMES_HOME / '.env').exists(),
         'skill_count': 0,
+        'avatar': profile_avatar_payload({'name': 'default', 'path': str(_DEFAULT_HERMES_HOME)}),
     }
 
 

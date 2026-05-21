@@ -3560,6 +3560,24 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/insights":
         return _handle_insights(handler, parsed)
 
+    if parsed.path == "/api/hermes/plugins":
+        from api.plugin_center import handle_plugin_center_get
+
+        result = handle_plugin_center_get(handler, parsed)
+        return True if result is not False else False
+
+    if parsed.path == "/api/gateway/center":
+        from api.gateway_center import handle_gateway_center_get
+
+        result = handle_gateway_center_get(handler, parsed)
+        return True if result is not False else False
+
+    if parsed.path.startswith("/api/hermes/group-chat"):
+        from api.group_chat import handle_group_chat_get
+
+        result = handle_group_chat_get(handler, parsed)
+        return True if result is not False else False
+
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_get
 
@@ -4613,6 +4631,12 @@ def handle_post(handler, parsed) -> bool:
         from api.session_recovery import repair_safe_session_recovery
         result = repair_safe_session_recovery(SESSION_DIR, state_db_path=_active_state_db_path())
         return j(handler, result, status=200 if result.get("clean") else 409)
+
+    if parsed.path.startswith("/api/hermes/group-chat"):
+        from api.group_chat import handle_group_chat_post
+
+        result = handle_group_chat_post(handler, parsed, body)
+        return True if result is not False else False
 
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_post
@@ -6177,6 +6201,12 @@ def handle_delete(handler, parsed) -> bool:
     if not _check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
     body = read_body(handler)
+    if parsed.path.startswith("/api/hermes/group-chat"):
+        from api.group_chat import handle_group_chat_delete
+
+        result = handle_group_chat_delete(handler, parsed, body)
+        return True if result is not False else False
+
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_delete
 

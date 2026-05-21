@@ -329,8 +329,8 @@ def git_status(workspace: str | Path) -> dict:
     )
     staged_stats = _collect_numstat(ctx, cached=True)
     unstaged_stats = _collect_numstat(ctx, cached=False)
-    staged_raw_stats = _collect_numstat(ctx, cached=True, ignore_cr_at_eol=False)
-    unstaged_raw_stats = _collect_numstat(ctx, cached=False, ignore_cr_at_eol=False)
+    staged_raw_diff_paths = _collect_diff_paths(ctx, cached=True, ignore_cr_at_eol=False) or set()
+    unstaged_raw_diff_paths = _collect_diff_paths(ctx, cached=False, ignore_cr_at_eol=False) or set()
     staged_diff_paths = _collect_diff_paths(ctx, cached=True)
     unstaged_diff_paths = _collect_diff_paths(ctx, cached=False)
 
@@ -364,6 +364,7 @@ def git_status(workspace: str | Path) -> dict:
 
         old_path = None
         renamed = False
+        metadata_crlf_only = False
         if rec.startswith("? "):
             xy = "??"
             repo_path = rec[2:]
@@ -379,6 +380,11 @@ def git_status(workspace: str | Path) -> dict:
             if len(parts) < 9:
                 continue
             xy = parts[1]
+            metadata_crlf_only = (
+                parts[3] == parts[4] == parts[5]
+                and parts[6] == parts[7]
+                and ("M" in xy)
+            )
             repo_path = parts[8]
             untracked = False
             ignored = False
@@ -430,8 +436,8 @@ def git_status(workspace: str | Path) -> dict:
                 old_workspace_path is not None and old_workspace_path in staged_diff_paths
             )
             if raw_staged and not staged:
-                if workspace_path in staged_raw_stats or (
-                    old_workspace_path is not None and old_workspace_path in staged_raw_stats
+                if metadata_crlf_only or workspace_path in staged_raw_diff_paths or (
+                    old_workspace_path is not None and old_workspace_path in staged_raw_diff_paths
                 ):
                     filtered_noise["crlf_only"] += 1
                 else:
@@ -442,8 +448,8 @@ def git_status(workspace: str | Path) -> dict:
                 old_workspace_path is not None and old_workspace_path in unstaged_diff_paths
             )
             if raw_unstaged and not unstaged:
-                if workspace_path in unstaged_raw_stats or (
-                    old_workspace_path is not None and old_workspace_path in unstaged_raw_stats
+                if metadata_crlf_only or workspace_path in unstaged_raw_diff_paths or (
+                    old_workspace_path is not None and old_workspace_path in unstaged_raw_diff_paths
                 ):
                     filtered_noise["crlf_only"] += 1
                 else:

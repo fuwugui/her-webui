@@ -19,6 +19,10 @@ let _kanbanSuppressCardClickUntil = 0;
 // EventSource fails to connect (proxy that strips text/event-stream, etc).
 let _kanbanEventSource = null;
 let _kanbanEventSourceFailures = 0;
+let _groupChatRooms = [];
+let _groupChatCurrentRoomId = null;
+let _groupChatEventSource = null;
+let _groupChatFallbackTimer = null;
 let _skillsData = null; // cached skills list
 let _cronList = null; // cached cron jobs (array)
 let _currentCronDetail = null; // full cron job object
@@ -39,7 +43,8 @@ let _logsSeverityFilter = 'all';
 const APP_TITLEBAR_KEYS = {
   chat: 'tab_chat', tasks: 'tab_tasks', skills: 'tab_skills',
   memory: 'tab_memory', workspaces: 'tab_workspaces',
-  profiles: 'tab_profiles', todos: 'tab_todos', insights: 'tab_insights', logs: 'tab_logs', settings: 'tab_settings',
+  profiles: 'tab_profiles', plugins: 'Plugins', gateway: 'Gateway Center', groupchat: 'Group Chat',
+  todos: 'tab_todos', insights: 'tab_insights', logs: 'tab_logs', settings: 'tab_settings',
 };
 
 /**
@@ -212,6 +217,9 @@ async function switchPanel(name, opts = {}) {
   if (prevPanel === 'kanban' && nextPanel !== 'kanban') {
     if (typeof _kanbanStopPolling === 'function') _kanbanStopPolling();
   }
+  if (prevPanel === 'groupchat' && nextPanel !== 'groupchat') {
+    if (typeof stopGroupChatEvents === 'function') stopGroupChatEvents();
+  }
   _currentPanel = nextPanel;
   // Update nav tabs (rail + mobile sidebar-nav share data-panel)
   document.querySelectorAll('[data-panel]').forEach(t => t.classList.toggle('active', t.dataset.panel === nextPanel));
@@ -219,13 +227,14 @@ async function switchPanel(name, opts = {}) {
   if (typeof _syncSidebarAria === 'function') _syncSidebarAria();
   // Update panel views
   document.querySelectorAll('.panel-view').forEach(p => p.classList.remove('active'));
-  const panelEl = $('panel' + nextPanel.charAt(0).toUpperCase() + nextPanel.slice(1));
+  const panelId = nextPanel === 'groupchat' ? 'panelGroupChat' : ('panel' + nextPanel.charAt(0).toUpperCase() + nextPanel.slice(1));
+  const panelEl = $(panelId);
   if (panelEl) panelEl.classList.add('active');
   // Update main content view. Each entry in MAIN_VIEW_PANELS gets a matching
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs'].forEach(p => {
+    ['settings','skills','memory','tasks','kanban','workspaces','profiles','plugins','gateway','groupchat','insights','logs'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -236,6 +245,9 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'memory') await loadMemory();
   if (nextPanel === 'workspaces') await loadWorkspacesPanel();
   if (nextPanel === 'profiles') await loadProfilesPanel();
+  if (nextPanel === 'plugins') await loadPluginCenter();
+  if (nextPanel === 'gateway') await loadGatewayCenter();
+  if (nextPanel === 'groupchat') await loadGroupChatPanel();
   if (nextPanel === 'todos') loadTodos();
   if (nextPanel === 'insights') await loadInsights();
   if (nextPanel === 'logs') await loadLogs();
@@ -253,6 +265,145 @@ async function switchPanel(name, opts = {}) {
   }
   syncAppTitlebar();
   return true;
+}
+
+// ── Extension Layer / Gateway Center / Group Chat panels ──
+function _mgmtEscape(value) {
+  return String(value == null ? '' : value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+}
+
+function renderProfileAvatar(avatar, label) {
+  const a = avatar || {};
+  const initials = _mgmtEscape(a.initials || (label || '?').slice(0, 2).toUpperCase());
+  const color = _mgmtEscape(a.color || '#64748b');
+  if (a.url) return `<span class="profile-avatar" style="background:${color}"><img src="${_mgmtEscape(a.url)}" alt="${_mgmtEscape(label || initials)}"></span>`;
+  if (a.icon) return `<span class="profile-avatar" style="background:${color}" title="${_mgmtEscape(label || initials)}">${_mgmtEscape(a.icon)}</span>`;
+  return `<span class="profile-avatar" style="background:${color}" title="${_mgmtEscape(label || initials)}">${initials}</span>`;
+}
+
+async function loadPluginCenter() {
+  const el = $('pluginCenterPanel');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px">Loading plugins...</div>';
+  try {
+    const res = await fetch('/api/hermes/plugins');
+    const data = await res.json();
+    const plugins = data.plugins || [];
+    el.innerHTML = plugins.length ? plugins.map(p => `
+      <div class="mgmt-card">
+        <div class="mgmt-card-title">${_mgmtEscape(p.name || p.key)} <span class="mgmt-pill">${_mgmtEscape(p.effectiveStatus || '')}</span></div>
+        <div class="mgmt-card-meta">${_mgmtEscape(p.kind)} · ${_mgmtEscape(p.source)} · ${_mgmtEscape(p.path || '')}</div>
+        <div class="mgmt-card-desc">${_mgmtEscape(p.description || '')}</div>
+      </div>`).join('') : '<div style="padding:12px;color:var(--muted);font-size:12px">No plugins discovered.</div>';
+  } catch (e) {
+    el.innerHTML = `<div class="error">${_mgmtEscape(e.message || e)}</div>`;
+  }
+}
+
+async function loadGatewayCenter() {
+  const el = $('gatewayCenterPanel');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px">Loading gateway status...</div>';
+  try {
+    const res = await fetch('/api/gateway/center');
+    const data = await res.json();
+    const profiles = data.profiles || [];
+    const summary = data.summary || {};
+    el.innerHTML = `
+      <div class="mgmt-summary">Profiles: ${summary.profile_count || 0} · Running: ${summary.running_count || 0} · Sessions: ${summary.session_count || 0}</div>
+      ${profiles.map(p => `<div class="mgmt-card mgmt-card-row">
+        ${renderProfileAvatar(p.avatar, p.name)}
+        <div class="mgmt-card-main">
+          <div class="mgmt-card-title">${_mgmtEscape(p.name)} <span class="mgmt-pill">${p.gateway_running ? 'running' : 'stopped'}</span></div>
+          <div class="mgmt-card-meta">${_mgmtEscape(p.provider || '')}/${_mgmtEscape(p.model || '')} · sessions ${p.session_count || 0}</div>
+          <div class="mgmt-card-desc">${(p.platforms || []).map(_mgmtEscape).join(', ') || 'No platform sessions'}</div>
+        </div>
+      </div>`).join('')}`;
+  } catch (e) {
+    el.innerHTML = `<div class="error">${_mgmtEscape(e.message || e)}</div>`;
+  }
+}
+
+function stopGroupChatEvents() {
+  if (_groupChatEventSource) {
+    _groupChatEventSource.close();
+    _groupChatEventSource = null;
+  }
+  if (_groupChatFallbackTimer) {
+    clearInterval(_groupChatFallbackTimer);
+    _groupChatFallbackTimer = null;
+  }
+}
+
+async function loadGroupChatPanel() {
+  const el = $('groupChatPanel');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/hermes/group-chat/rooms');
+    const data = await res.json();
+    _groupChatRooms = data.rooms || [];
+    if (!_groupChatCurrentRoomId && _groupChatRooms[0]) _groupChatCurrentRoomId = _groupChatRooms[0].id;
+    el.innerHTML = `<div class="group-chat-shell">
+      <div class="group-chat-toolbar"><input id="groupChatRoomName" placeholder="Room name" value="Group Chat"><button class="btn secondary" onclick="createGroupChatRoom()">New room</button></div>
+      <div class="group-chat-rooms">${_groupChatRooms.map(r => `<button class="mgmt-pill ${r.id===_groupChatCurrentRoomId?'active':''}" onclick="selectGroupChatRoom('${_mgmtEscape(r.id)}')">${_mgmtEscape(r.name)}</button>`).join('')}</div>
+      <div id="groupChatMessages" class="group-chat-messages"></div>
+      <div class="group-chat-compose"><input id="groupChatInput" placeholder="Message @architect, @backend, @web..." onkeydown="if(event.key==='Enter')sendGroupChatMessage()"><button class="btn primary" onclick="sendGroupChatMessage()">Send</button></div>
+    </div>`;
+    if (_groupChatCurrentRoomId) await renderGroupChatRoom(_groupChatCurrentRoomId);
+  } catch (e) {
+    el.innerHTML = `<div class="error">${_mgmtEscape(e.message || e)}</div>`;
+  }
+}
+
+async function renderGroupChatRoom(roomId) {
+  const res = await fetch(`/api/hermes/group-chat/rooms/${encodeURIComponent(roomId)}`);
+  const data = await res.json();
+  const room = data.room || {};
+  const messages = $('groupChatMessages');
+  if (messages) {
+    messages.innerHTML = (room.messages || []).map(m => `<div class="group-chat-message"><b>${_mgmtEscape(m.sender || m.role)}</b><span>${_mgmtEscape(m.content || '')}</span></div>`).join('') || '<div style="color:var(--muted);font-size:12px">No messages yet.</div>';
+    messages.scrollTop = messages.scrollHeight;
+  }
+  startGroupChatEvents(roomId);
+}
+
+function startGroupChatEvents(roomId) {
+  stopGroupChatEvents();
+  if (!window.EventSource) {
+    _groupChatFallbackTimer = setInterval(() => renderGroupChatRoom(roomId), 3000);
+    return;
+  }
+  _groupChatEventSource = new EventSource(`/api/hermes/group-chat/rooms/${encodeURIComponent(roomId)}/events/stream`);
+  _groupChatEventSource.addEventListener('message', () => renderGroupChatRoom(roomId));
+  _groupChatEventSource.addEventListener('agent_added', () => renderGroupChatRoom(roomId));
+  _groupChatEventSource.addEventListener('agent_removed', () => renderGroupChatRoom(roomId));
+  _groupChatEventSource.onerror = () => {
+    stopGroupChatEvents();
+    _groupChatFallbackTimer = setInterval(() => renderGroupChatRoom(roomId), 3000);
+  };
+}
+
+function selectGroupChatRoom(roomId) {
+  _groupChatCurrentRoomId = roomId;
+  loadGroupChatPanel();
+}
+
+async function createGroupChatRoom() {
+  const roomNameInput = $('groupChatRoomName');
+  const name = ((roomNameInput && roomNameInput.value) || 'Group Chat').trim();
+  if (!name) return;
+  const res = await fetch('/api/hermes/group-chat/rooms', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})});
+  const data = await res.json();
+  if (data.room) _groupChatCurrentRoomId = data.room.id;
+  await loadGroupChatPanel();
+}
+
+async function sendGroupChatMessage() {
+  const input = $('groupChatInput');
+  if (!_groupChatCurrentRoomId || !input || !input.value.trim()) return;
+  await fetch(`/api/hermes/group-chat/rooms/${encodeURIComponent(_groupChatCurrentRoomId)}/messages`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:input.value, sender:'webui'})});
+  input.value = '';
+  await renderGroupChatRoom(_groupChatCurrentRoomId);
 }
 
 // ── Cron panel ──

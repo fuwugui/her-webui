@@ -1,5 +1,7 @@
 """Embedded workspace terminal support for Hermes Web UI.
 
+Route family: /api/terminal/*
+
 The terminal is intentionally independent from the agent execution path.  It
 starts a shell with an explicit cwd/env per process and never mutates
 process-global os.environ, which avoids expanding the session-env race tracked

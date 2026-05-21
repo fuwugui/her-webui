@@ -33,6 +33,9 @@ _cache_lock = threading.Lock()
 _check_in_progress = False
 _apply_lock = threading.Lock()   # prevents concurrent stash/pull/pop on same repo
 CACHE_TTL = 1800  # 30 minutes
+_CANONICAL_REPO_URLS = {
+    'webui': 'https://github.com/nesquena/hermes-webui',
+}
 
 
 def _active_stream_count() -> int:
@@ -194,6 +197,17 @@ def _normalize_remote_url(remote_url):
     return remote_url.rstrip('/')
 
 
+def _repo_url_for_target(name, remote_url):
+    """Return canonical browser URL for a known update target.
+
+    Operators may run WebUI from a fork remote (for example fuwugui/her-webui),
+    but update comparison links should point at the upstream project whose tags
+    and release notes define the WebUI update stream.
+    """
+    normalized = _normalize_remote_url(remote_url)
+    return _CANONICAL_REPO_URLS.get(name) or normalized
+
+
 def _build_compare_url(repo_url, current_sha, latest_sha):
     """Return a safe browser compare URL, or None when any piece is missing."""
     if not (repo_url and current_sha and latest_sha):
@@ -263,7 +277,7 @@ def _check_repo_release(path, name):
     behind = _release_gap(tags, current_tag, latest_tag)
 
     remote_url, _ = _run_git(['remote', 'get-url', 'origin'], path)
-    remote_url = _normalize_remote_url(remote_url)
+    remote_url = _repo_url_for_target(name, remote_url)
 
     return {
         'name': name,
@@ -338,7 +352,7 @@ def _check_repo_branch(path, name, *, fetch=True):
 
     # Get repo URL for "What's new?" link
     remote_url, _ = _run_git(['remote', 'get-url', 'origin'], path)
-    remote_url = _normalize_remote_url(remote_url)
+    remote_url = _repo_url_for_target(name, remote_url)
 
     return {
         'name': name,
