@@ -97,7 +97,7 @@ class TestUpdateChecker:
             if args[:3] == ['rev-parse', '--short', 'origin/master']:
                 return 'def5678', True
             if args[:2] == ['remote', 'get-url']:
-                return 'https://github.com/nesquena/hermes-webui.git', True
+                return 'https://github.com/fuwugui/her-webui.git', True
             return '', True
 
         monkeypatch.setattr(upd, '_run_git', fake_run)
@@ -124,7 +124,7 @@ class TestUpdateChecker:
             if args[:2] == ['rev-parse', '--short']:
                 return 'abcdef1', True
             if args[:2] == ['remote', 'get-url']:
-                return 'https://github.com/nesquena/hermes-webui.git', True
+                return 'https://github.com/fuwugui/her-webui.git', True
             return '', True
 
         monkeypatch.setattr(upd, '_run_git', fake_run)
@@ -174,7 +174,7 @@ class TestUpdateChecker:
             if args[:2] == ['rev-parse', '--short']:
                 return 'abcdef1', True
             if args[:2] == ['remote', 'get-url']:
-                return 'https://github.com/nesquena/hermes-webui.git/', True
+                return 'https://github.com/fuwugui/her-webui.git/', True
             return '', True
 
         monkeypatch.setattr(upd, '_run_git', fake_run)
@@ -225,7 +225,7 @@ class TestUpdateChecker:
             if args[:3] == ['describe', '--tags', '--abbrev=0']:
                 return 'v0.51.34', True
             if args[:2] == ['remote', 'get-url']:
-                return 'https://github.com/nesquena/hermes-webui.git', True
+                return 'https://github.com/fuwugui/her-webui.git', True
             return '', False
 
         monkeypatch.setattr(upd, '_run_git', fake_run)

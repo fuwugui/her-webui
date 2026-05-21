@@ -98,7 +98,7 @@ ecosystem. See [docs/why-hermes.md](docs/why-hermes.md) for the full side-by-sid
 Run the repo bootstrap:
 
 ```bash
-git clone https://github.com/nesquena/hermes-webui.git hermes-webui
+git clone https://github.com/fuwugui/her-webui.git hermes-webui
 cd hermes-webui
 python3 bootstrap.py
 ```
